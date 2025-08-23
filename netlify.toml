@@ -9,13 +9,17 @@
 [build.environment]
   NODE_VERSION = "18"
   NPM_VERSION = "9"
-  VITE_API_URL = "https://your-backend-api.herokuapp.com"
+  # API calls will use Netlify Functions
+  VITE_API_URL = ""
+  # MongoDB connection for Netlify Functions
+  MONGODB_URI = "mongodb+srv://rehansaqib:Cusit%4012926@cluster0.koi0z.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+  NODE_ENV = "production"
 
 # Redirect rules for client-side routing
-# API redirects - Update this URL with your actual backend deployment
+# API redirects - Using Netlify Functions
 [[redirects]]
   from = "/api/*"
-  to = "https://your-backend-api.herokuapp.com/api/:splat"
+  to = "/.netlify/functions/api"
   status = 200
   force = true
 
