@@ -28,7 +28,7 @@ app.use((req, res, next) => {
 // Setup authentication and routes
 setupAuth(app);
 
-// Venue routes
+// Register venue routes manually for Netlify Functions
 app.get('/api/venues', async (_req, res) => {
   try {
     const { storage } = await import('../../server/storage');
