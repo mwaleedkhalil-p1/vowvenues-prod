@@ -3,56 +3,101 @@ import cors from 'cors';
 import mongoose from 'mongoose';
 import serverless from 'serverless-http';
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { storage } from '../server/storage';
-import { setupAuth } from '../server/auth';
+import bcrypt from 'bcrypt';
+import { Venue, User } from '../shared/schema';
 
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://hall-project.vercel.app', 'https://hall-project.netlify.app']
+    : 'http://localhost:5173',
+  credentials: true
+}));
 app.use(express.json());
 
-// Set up authentication routes
-setupAuth(app);
-
-// Manual venue routes registration
-app.get("/api/venues", async (_req, res) => {
+// Simplified authentication routes (without sessions)
+app.post('/api/register', async (req, res) => {
   try {
-    const venues = await storage.getVenues();
-    // Ensure all IDs are strings in response
-    const venuesWithStringIds = venues.map(venue => ({
-      ...venue,
-      _id: venue._id.toString()
-    }));
-    res.json(venuesWithStringIds);
+    const { username, email, password } = req.body;
+    
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
+    if (existingUser) {
+      return res.status(400).json({ error: 'User already exists' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({ username, email, password: hashedPassword });
+    await user.save();
+
+    res.status(201).json({ message: 'User registered successfully', userId: user._id });
   } catch (error) {
-    console.error('Error fetching venues:', error);
-    res.status(500).json({ message: "Internal server error" });
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Registration failed' });
   }
 });
 
-app.get("/api/venues/:id", async (req, res) => {
+app.post('/api/login', async (req, res) => {
   try {
-    const venueId = req.params.id;
+    const { username, password } = req.body;
     
-    // Try to fetch venue
-    const venue = await storage.getVenueById(venueId);
-
-    if (!venue) {
-      console.log('Venue not found:', venueId);
-      return res.status(404).json({ message: "Venue not found" });
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
     }
 
-    // Ensure ID is a string in response
-    const venueData = {
-      ...venue,
-      _id: typeof venue._id === 'object' ? venue._id.toString() : venue._id
-    };
+    const user = await User.findOne({ username });
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
-    res.json(venueData);
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    res.json({ message: 'Login successful', userId: user._id, username: user.username });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+app.post('/api/logout', (req, res) => {
+  res.json({ message: 'Logout successful' });
+});
+
+app.get('/api/user', (req, res) => {
+  // Without sessions, we can't maintain user state
+  // This endpoint now returns unauthorized for serverless compatibility
+  res.status(401).json({ error: 'Not authenticated' });
+});
+
+// Venue routes
+app.get('/api/venues', async (req, res) => {
+  try {
+    const venues = await Venue.find();
+    res.json(venues);
+  } catch (error) {
+    console.error('Error fetching venues:', error);
+    res.status(500).json({ error: 'Failed to fetch venues' });
+  }
+});
+
+app.get('/api/venues/:id', async (req, res) => {
+  try {
+    const venue = await Venue.findById(req.params.id);
+    if (!venue) {
+      return res.status(404).json({ error: 'Venue not found' });
+    }
+    res.json(venue);
   } catch (error) {
     console.error('Error fetching venue:', error);
-    res.status(500).json({ message: "Internal server error" });
+    res.status(500).json({ error: 'Failed to fetch venue' });
   }
 });
 
