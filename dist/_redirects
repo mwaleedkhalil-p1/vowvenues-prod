@@ -1,0 +1,12 @@
+# Handle client-side routing
+/*    /index.html   200
+
+# API routes should go to Netlify Functions
+/api/*  /.netlify/functions/api  200
+
+# Handle specific routes
+/venues/*  /index.html  200
+/venue/*   /index.html  200
+/auth      /index.html  200
+/about     /index.html  200
+/feedback  /index.html  200

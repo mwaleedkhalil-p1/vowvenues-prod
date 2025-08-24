@@ -1,8 +1,8 @@
 # Handle client-side routing
 /*    /index.html   200
 
-# API routes should go to the server
-/api/*  https://your-server-url.com/api/:splat  200
+# API routes should go to Netlify Functions
+/api/*  /.netlify/functions/api  200
 
 # Handle specific routes
 /venues/*  /index.html  200
