@@ -27,9 +27,15 @@
     "client/src/**/*",
     "server/**/*",
     "shared/**/*",
-    "*.ts",
-    "*.mjs",
-    "vite.config.ts"
+    "api/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "*.config.ts",
+    "*.config.js",
+    "*.config.mjs"
   ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

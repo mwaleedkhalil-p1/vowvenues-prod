@@ -1,38 +1,25 @@
-import { VercelRequest, VercelResponse } from '@vercel/node';
 import express from 'express';
-import { registerRoutes } from '../server/routes';
-import { setupAuth } from '../server/auth';
-import mongoose from '../server/db';
-import { importVenues } from '../server/import-venues';
+import cors from 'cors';
+import mongoose from 'mongoose';
 import serverless from 'serverless-http';
+import { VercelRequest, VercelResponse } from '@vercel/node';
+import { storage } from '../server/storage';
+import { setupAuth } from '../server/auth';
 
-// Create Express app
 const app = express();
+
+// Middleware
+app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
 
-// Add CORS middleware for Vercel
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-    return;
-  }
-  next();
-});
-
-// Setup authentication
+// Set up authentication routes
 setupAuth(app);
 
-// Register venue routes manually for Vercel Functions
-app.get('/api/venues', async (_req, res) => {
+// Manual venue routes registration
+app.get("/api/venues", async (_req, res) => {
   try {
-    const { storage } = await import('../server/storage');
     const venues = await storage.getVenues();
+    // Ensure all IDs are strings in response
     const venuesWithStringIds = venues.map(venue => ({
       ...venue,
       _id: venue._id.toString()
@@ -44,16 +31,19 @@ app.get('/api/venues', async (_req, res) => {
   }
 });
 
-app.get('/api/venues/:id', async (req, res) => {
+app.get("/api/venues/:id", async (req, res) => {
   try {
-    const { storage } = await import('../server/storage');
     const venueId = req.params.id;
+    
+    // Try to fetch venue
     const venue = await storage.getVenueById(venueId);
 
     if (!venue) {
+      console.log('Venue not found:', venueId);
       return res.status(404).json({ message: "Venue not found" });
     }
 
+    // Ensure ID is a string in response
     const venueData = {
       ...venue,
       _id: typeof venue._id === 'object' ? venue._id.toString() : venue._id
@@ -66,57 +56,54 @@ app.get('/api/venues/:id', async (req, res) => {
   }
 });
 
-// Serve static files for non-API routes
-app.get('*', (req, res) => {
-  // For Vercel, we'll let the static files be handled by the routes in vercel.json
-  res.status(404).json({ message: 'Not found' });
-});
+// Database connection management for serverless
+let cachedConnection: typeof mongoose | null = null;
 
-// Initialize database connection
-let isConnected = false;
-
-const connectToDatabase = async () => {
-  if (isConnected) {
-    return;
+async function connectToDatabase() {
+  // If we have a cached connection and it's connected, reuse it
+  if (cachedConnection && cachedConnection.connection.readyState === 1) {
+    return cachedConnection;
   }
 
   try {
-    await mongoose.connection.readyState;
-    if (mongoose.connection.readyState === 1) {
-      isConnected = true;
-      return;
+    const MONGODB_URI = process.env.MONGODB_URI;
+    if (!MONGODB_URI) {
+      throw new Error('Missing MONGODB_URI environment variable');
     }
 
-    await new Promise((resolve, reject) => {
-      mongoose.connection.once('open', resolve);
-      mongoose.connection.once('error', reject);
+    // Create new connection
+    const connection = await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 10000, // Shorter timeout for serverless
+      socketTimeoutMS: 10000,
+      connectTimeoutMS: 10000,
+      retryWrites: true,
+      retryReads: true,
+      maxPoolSize: 1, // Single connection for serverless
+      minPoolSize: 0,
+      maxIdleTimeMS: 10000,
+      bufferCommands: false,
+      autoCreate: false
     });
 
-    // Import venues if needed
-    await importVenues();
-    isConnected = true;
-    console.log('Connected to MongoDB and imported venues');
+    cachedConnection = connection;
+    console.log('Connected to MongoDB Atlas successfully');
+    return connection;
   } catch (error) {
-    console.error('Database connection failed:', error);
+    console.error('MongoDB connection error:', error);
+    cachedConnection = null;
     throw error;
   }
-};
-
-// Create serverless handler
-const serverlessApp = serverless(app);
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  try {
-    // Ensure database connection
-    await connectToDatabase();
-    
-    // Handle the request
-    return await serverlessApp(req, res);
-  } catch (error) {
-    console.error('Handler error:', error);
-    return res.status(500).json({ 
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
 }
+
+// Serverless handler
+const handler = serverless(app);
+
+export default async (req: VercelRequest, res: VercelResponse) => {
+  try {
+    await connectToDatabase();
+    return handler(req, res);
+  } catch (error) {
+    console.error('Serverless function error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
